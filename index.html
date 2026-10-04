@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="一枚の絵から起こした侍が、すみぼうずを斬ってすすむ五巻のアクション。">
+<meta property="og:title" content="ごぼう侍">
+<meta property="og:description" content="一枚の絵から起こした侍が、すみぼうずを斬ってすすむ五巻のアクション。">
+<meta property="og:type" content="website">
+<title>ごぼう侍</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&display=swap">
+<style>
+  /* ごぼう侍 — 紙に描かれた侍を、机の上に置いたように見せる */
+  :root{
+    --ground:  #e7e0d2;   /* 机の色（温かい土） */
+    --ground2: #d9d0bd;
+    --paper:   #fbf7ee;
+    --ink:     #15151c;
+    --sub:     #6b6354;
+    --ochre:   #9a7a1f;
+    --edge:    rgba(60,48,30,.26);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:  #1b1813;
+      --ground2: #120f0b;
+      --ink:     #ece4d4;
+      --sub:     #a79b85;
+      --ochre:   #d9b155;
+      --edge:    rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:  #1b1813;
+    --ground2: #120f0b;
+    --ink:     #ece4d4;
+    --sub:     #a79b85;
+    --ochre:   #d9b155;
+    --edge:    rgba(0,0,0,.6);
+  }
+
+  html, body{ height:100%; }
+  body{
+    margin:0;
+    background: radial-gradient(120% 90% at 50% 0%, var(--ground) 0%, var(--ground2) 100%);
+    color: var(--ink);
+    font-family: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px;
+    padding-block:18px; padding-inline:16px;
+    box-sizing:border-box;
+    overflow:hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #wrap{
+    position:relative;
+    width: min(100%, 1000px, calc((100dvh - 150px) * 1.6129));
+  }
+  canvas{
+    display:block; width:100%; height:auto;
+    background: var(--paper);
+    border-radius:6px;
+    box-shadow: 0 2px 0 rgba(0,0,0,.14), 0 18px 40px var(--edge);
+    touch-action:none;
+  }
+  footer{
+    font-size:14px; color:var(--sub); text-align:center;
+    letter-spacing:.04em; line-height:1.9; max-width:min(100%, 78ch);
+    word-break:keep-all; overflow-wrap:normal; text-wrap:balance;
+  }
+  footer b{ font-weight:600; color:var(--ink); }
+  #pad{
+    position:absolute; inset:auto 0 0 0;
+    display:none; justify-content:space-between;
+    padding:10px 12px; box-sizing:border-box; pointer-events:none;
+  }
+  #pad .g{ display:flex; gap:10px; pointer-events:auto; }
+  #pad button{
+    width:62px; height:62px; border-radius:50%;
+    border:3px solid #15151c; background:rgba(251,247,238,.85);
+    font: 18px/1 "Shippori Mincho", serif; color:#15151c;
+    touch-action:none; user-select:none;
+  }
+  #pad button:active{ background:#f0c33c; }
+  #pad button:focus-visible, canvas:focus-visible{ outline:3px solid var(--ochre); outline-offset:3px; }
+  @media (hover:none) and (pointer:coarse){
+    #pad{ display:flex; }
+    footer .keys{ display:none; }
+  }
+  @media not all and (pointer:coarse){ footer .taps{ display:none; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="1000" height="620" tabindex="0" aria-label="ごぼう侍 — 横向きのアクションゲーム"></canvas>
+  <div id="pad">
+    <div class="g"><button type="button" data-k="left" aria-label="左へ">←</button><button type="button" data-k="right" aria-label="右へ">→</button></div>
+    <div class="g"><button type="button" data-k="jump" aria-label="とぶ">とぶ</button><button type="button" data-k="atk" aria-label="きる">きる</button></div>
+  </div>
+</div>
+<footer>
+  <span class="keys"><b>← →</b> うごく　<b>スペース</b> とぶ　<b>Z</b> きる　<b>M</b> 音の入切　<b>R</b> はじめから</span>
+  <span class="taps">画面下のボタンで うごく・とぶ・きる</span>
+</footer>
+<script>
+"use strict";
+/* ============================================================
+   ごぼう侍 — 一枚絵の侍をそのまま主人公にしたアクション
+   描画はすべて手描き（Canvas）。原画の形・色をなぞっています。
+   ============================================================ */
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+/* ---------- 色（原画から拾った絵の具の色） ---------- */
+const INK    = '#15151c';
+const CREAM  = '#f2efe4';
+const RED    = '#e2402f';
+const BLUE   = '#3a5bdc';
+const BLUE_D = '#2a44c4';
+const GREEN  = '#3fbe3c';
+const ORANGE = '#f5a62a';
+const CYAN   = '#2baee0';
+const BROWN  = '#7a4f29';
+const OCHRE  = '#c9a13a';
+const PAPER  = '#fbf7ee';
+
+/* ---------- 小道具 ---------- */
+const P = d => new Path2D(d);
+const rnd = (a,b) => a + Math.random()*(b-a);
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+
+function inkStroke(g, path, w, color){
+  g.save();
+  g.strokeStyle = color || INK;
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.lineWidth = w; g.stroke(path);
+  g.globalAlpha = .45; g.lineWidth = w*.55;
+  g.translate(1.6,-1.8); g.stroke(path);
+  g.restore();
+}
+// 塗りのムラ（マーカーの筆跡）を足す
+function streaks(g, path, bounds, n, color, alpha, angle){
+  g.save(); g.clip(path);
+  g.globalAlpha = alpha; g.strokeStyle = color;
+  g.lineCap = 'round';
+  const [bx,by,bw,bh] = bounds, d = Math.max(bw,bh)*1.4;
+  g.translate(bx+bw/2, by+bh/2); g.rotate(angle||-1.15);
+  for(let i=0;i<n;i++){
+    g.lineWidth = rnd(3,11);
+    const x = rnd(-d/2, d/2);
+    g.beginPath(); g.moveTo(x, -d/2+rnd(0,30)); g.lineTo(x+rnd(-8,8), d/2-rnd(0,30)); g.stroke();
+  }
+  g.restore();
+}
+function marker(g, path, fill, bounds, light, dark){
+  g.fillStyle = fill; g.fill(path);
+  if(light) streaks(g, path, bounds, 7, light, .22);
+  if(dark)  streaks(g, path, bounds, 5, dark,  .18, -.75);
+}
+
+/* ============================================================
+   原画のパス（1000 x 1740 の座標系）
+   ============================================================ */
+const ART_W = 1000, ART_H = 1740;
+
+const PATHS = {
+  halo1: P('M 140 424 C 116 322 182 250 268 226 C 330 208 380 200 420 196 L 428 110 \
+            C 438 50 566 42 582 112 L 592 192 C 702 202 802 238 852 300 \
+            C 932 392 954 520 942 700 C 932 902 922 1102 932 1302 \
+            C 938 1424 932 1562 920 1700'),
+  halo2: P('M 46 566 C 54 502 90 452 150 430'),
+  halo3: P('M 40 742 C 110 724 178 752 230 798'),
+
+  hat:  P('M 452 78 C 452 54 554 54 554 78 L 552 228 L 736 236 \
+           C 756 240 758 300 748 334 C 740 364 730 388 716 392 L 272 384 \
+           C 256 378 240 352 232 318 C 224 286 228 242 244 238 L 452 230 Z'),
+
+  hair: P('M 100 672 C 78 486 172 352 332 326 C 458 300 588 300 710 328 \
+           C 872 362 926 492 904 672 C 898 744 872 806 812 796 \
+           C 760 788 716 776 706 744 C 700 640 704 530 698 466 \
+           C 656 402 344 402 302 466 C 296 530 300 640 294 744 \
+           C 284 776 240 788 188 796 C 128 806 106 744 100 672 Z'),
+
+  face: P('M 236 548 C 226 448 338 418 500 418 C 662 418 776 448 766 548 \
+           C 758 600 736 610 726 640 C 714 700 706 860 700 992 \
+           L 506 1150 L 312 992 C 306 860 298 700 286 640 \
+           C 276 610 244 600 236 548 Z'),
+
+  // 前髪（中央の黒い塊）
+  bang: P('M 330 548 C 370 486 440 468 492 520 C 500 530 506 530 512 518 \
+           C 562 466 634 486 686 540 C 620 594 400 596 330 548 Z'),
+  // 眉（太い斜めの二本）
+  browL: P('M 212 462 L 266 448 L 418 578 L 372 610 Z'),
+  browR: P('M 790 458 L 736 446 L 584 576 L 630 608 Z'),
+
+  nose: P('M 512 718 L 594 788 L 436 854 Z'),
+  mouth: P('M 418 886 C 500 878 564 880 638 890 C 644 918 640 936 632 946 \
+            C 556 940 492 938 414 944 C 408 930 408 900 418 886 Z'),
+
+  // 襟の内側（白練色）
+  inner: P('M 330 1000 L 704 994 L 512 1320 Z'),
+
+  // 青い上衣（襟のV字を抜いた形）
+  torso: P('M 356 1026 C 248 1046 158 1108 126 1206 C 110 1254 104 1300 108 1336 \
+            L 872 1340 C 880 1276 866 1194 840 1138 C 802 1056 716 1026 660 1016 \
+            L 508 1292 Z'),
+
+  obi:   P('M 296 1286 L 712 1280 L 722 1424 L 286 1428 Z'),
+  hakama:P('M 286 1420 L 722 1414 L 738 1740 L 270 1740 Z'),
+
+  box:   P('M 706 1330 L 878 1336 L 870 1630 L 700 1622 Z'),
+  boxV:  P('M 742 1368 L 774 1370 L 770 1598 L 738 1596 Z'),
+  boxH1: P('M 744 1412 L 842 1416 L 840 1450 L 742 1446 Z'),
+  boxH2: P('M 742 1512 L 840 1516 L 838 1550 L 736 1546 Z'),
+
+  cordA: P('M 158 1300 C 148 1346 168 1384 196 1386 C 218 1388 224 1350 214 1310'),
+  cordB: P('M 232 1304 C 226 1348 240 1382 260 1380 C 276 1378 278 1344 270 1308'),
+
+  leafA: P('M 792 1090 C 828 1102 842 1160 828 1218 C 820 1248 798 1242 790 1210 \
+            C 780 1166 780 1116 792 1090 Z'),
+  leafB: P('M 802 1118 C 814 1152 816 1196 808 1226'),
+};
+
+/* 刀（別キャンバス。振るために分けてある） */
+const SWORD = P('M 10 742 C 150 862 266 996 368 1098 C 458 1186 572 1238 712 1268 \
+                 L 870 1296 L 862 1352 L 694 1322 C 528 1290 398 1224 292 1118 \
+                 C 192 1016 86 880 10 742 Z');
+
+/* ============================================================
+   侍の描画（オフスクリーンに一度だけ焼く）
+   ============================================================ */
+const PRE = 0.62;                       // 下絵の解像度
+function makeCanvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+
+const bodyCan = makeCanvas(ART_W*PRE, ART_H*PRE);
+const SW_X=-20, SW_Y=700, SW_W=920, SW_H=700;
+const SW_TIP=[10,742];                  // 切っ先（軌跡を描くのに使う）
+const swordCan = makeCanvas(SW_W*PRE, SW_H*PRE);
+
+function paintBody(){
+  const g = bodyCan.getContext('2d');
+  g.scale(PRE,PRE);
+  g.lineJoin='round'; g.lineCap='round';
+
+  // 周りの金茶のふちどり
+  g.save(); g.globalAlpha=.9;
+  inkStroke(g, PATHS.halo1, 22, OCHRE);
+  inkStroke(g, PATHS.halo2, 16, OCHRE);
+  inkStroke(g, PATHS.halo3, 18, OCHRE);
+  g.restore();
+  g.save(); g.fillStyle=OCHRE;
+  g.beginPath(); g.ellipse(906,1396,11,13,0,0,7); g.fill();
+  g.beginPath(); g.ellipse(912,1424,8,10,0,0,7); g.fill();
+  g.restore();
+
+  // 髪
+  g.fillStyle = '#16161c'; g.fill(PATHS.hair);
+  streaks(g, PATHS.hair, [100,320,810,490], 6, '#33333e', .12);
+  inkStroke(g, PATHS.hair, 13);
+
+  // 襟の内側 → 青い上衣 → 帯 → 袴 → 箱
+  marker(g, PATHS.inner, '#ddd9cd', [330,990,380,330], '#ffffff');
+  inkStroke(g, PATHS.inner, 11);
+
+  marker(g, PATHS.torso, BLUE, [100,1010,780,340], '#7d94ff', '#1d2f9e');
+  inkStroke(g, PATHS.torso, 14);
+
+  marker(g, PATHS.obi, BLUE_D, [286,1280,440,150], '#6f86f7', '#17228f');
+  inkStroke(g, PATHS.obi, 13);
+
+  marker(g, PATHS.hakama, GREEN, [270,1410,470,330], '#8ce86a', '#1d7f1c');
+  inkStroke(g, PATHS.hakama, 14);
+
+  // 袴の橙の粒
+  const dots = [[352,1518],[440,1512],[528,1516],[614,1520],[700,1526],
+                [336,1672],[426,1668],[516,1670],[606,1674],[696,1680]];
+  for(const [x,y] of dots){
+    const e=new Path2D(); e.ellipse(x,y,26,44,rnd(-.06,.06),0,7);
+    g.fillStyle=ORANGE; g.fill(e); inkStroke(g,e,9);
+  }
+
+  marker(g, PATHS.box, CYAN, [700,1330,180,300], '#9adff5', '#1680ac');
+  inkStroke(g, PATHS.box, 15);
+  g.fillStyle=INK;
+  g.fill(PATHS.boxV); g.fill(PATHS.boxH1); g.fill(PATHS.boxH2);
+
+  // 袖の飾りと紐
+  inkStroke(g, PATHS.cordA, 10);
+  inkStroke(g, PATHS.cordB, 10);
+  inkStroke(g, PATHS.leafA, 11);
+  inkStroke(g, PATHS.leafB, 8);
+
+  // 顔
+  marker(g, PATHS.face, CREAM, [230,418,540,730], '#ffffff', '#d9d2bf');
+  inkStroke(g, PATHS.face, 13);
+
+  // 前髪・眉
+  g.fillStyle='#16161c';
+  g.fill(PATHS.bang); inkStroke(g, PATHS.bang, 10);
+  g.fill(PATHS.browL); inkStroke(g, PATHS.browL, 10);
+  g.fill(PATHS.browR); inkStroke(g, PATHS.browR, 10);
+  // 前髪の上の三本のとがり
+  for(const [x,y,w] of [[474,436,16],[512,424,17],[552,436,16]]){
+    const t=new Path2D(); t.moveTo(x-w,y); t.lineTo(x+w,y+6); t.lineTo(x+2,y+78); t.closePath();
+    g.fillStyle='#16161c'; g.fill(t); inkStroke(g,t,7);
+  }
+
+  // 眼鏡
+  for(const [cx,cy] of [[438,668],[620,664]]){
+    const lens=new Path2D(); lens.ellipse(cx,cy,84,80,0,0,7);
+    g.fillStyle='#f7f5ee'; g.fill(lens); inkStroke(g, lens, 15);
+    const pu=new Path2D(); pu.ellipse(cx+2,cy-6,35,42,0,0,7);
+    g.fillStyle='#16161c'; g.fill(pu);
+  }
+  const bridge=P('M 520 660 L 540 658'); inkStroke(g, bridge, 16);
+  inkStroke(g, P('M 704 648 C 724 640 736 646 744 660'), 10);
+  inkStroke(g, P('M 354 652 C 334 644 322 650 314 664'), 10);
+
+  // 鼻・口
+  g.fillStyle=CREAM; g.fill(PATHS.nose); inkStroke(g, PATHS.nose, 12);
+  g.fillStyle='#16161c'; g.fill(PATHS.mouth); inkStroke(g, PATHS.mouth, 8);
+
+  // 笠（いちばん上）
+  marker(g, PATHS.hat, RED, [230,54,528,340], '#ff8a72', '#b32718');
+  inkStroke(g, PATHS.hat, 14);
+}
+
+function paintSword(){
+  const g = swordCan.getContext('2d');
+  g.scale(PRE,PRE); g.translate(-SW_X,-SW_Y);
+  const grd = g.createLinearGradient(16,748,866,1320);
+  grd.addColorStop(0,'#4e3017'); grd.addColorStop(.35,'#8a5a2c');
+  grd.addColorStop(.62,'#6b421f'); grd.addColorStop(1,'#8a5f33');
+  g.fillStyle = grd; g.fill(SWORD);
+  streaks(g, SWORD, [16,748,850,592], 9, '#c08a4e', .22, -0.62);
+  streaks(g, SWORD, [16,748,850,592], 6, '#30190a', .22, -0.62);
+  inkStroke(g, SWORD, 9, '#2a1708');
+  // 鍔
+  const tsuba=new Path2D(); tsuba.ellipse(348,1136,74,30,0.76,0,7);
+  inkStroke(g, tsuba, 13);
+  inkStroke(g, P('M 318 1118 C 342 1126 352 1146 344 1162'), 8);
+}
+paintBody(); paintSword();
+
+/* ============================================================
+   世界
+   ============================================================ */
+const GROUND = 520;
+const CHAR_S = 0.124;                       // 1740 * 0.124 ≒ 216px
+const PW = 74, PH = ART_H*CHAR_S;
+
+const keys = {};
+const press = {};
+addEventListener('keydown', e=>{
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
+  if(!keys[e.code]) press[e.code]=true;
+  keys[e.code]=true;
+});
+addEventListener('keyup', e=>{ keys[e.code]=false; });
+
+// タッチ
+const touch = {left:false,right:false,jump:false,atk:false};
+for(const b of document.querySelectorAll('#pad button')){
+  const k=b.dataset.k;
+  const on =e=>{e.preventDefault(); touch[k]=true; if(k==='jump')press._jump=true; if(k==='atk')press._atk=true;};
+  const off=e=>{e.preventDefault(); touch[k]=false;};
+  b.addEventListener('touchstart',on); b.addEventListener('touchend',off);
+  b.addEventListener('touchcancel',off);
+  b.addEventListener('mousedown',on); b.addEventListener('mouseup',off);
+}
+cv.addEventListener('pointerdown', e=>{ press._any=true; });
+
+const held = {
+  left : ()=> keys.ArrowLeft||keys.KeyA||touch.left,
+  right: ()=> keys.ArrowRight||keys.KeyD||touch.right,
+};
+const tapped = {
+  jump: ()=>{ const v=press.Space||press.ArrowUp||press.KeyW||press._jump; return v; },
+  atk : ()=>{ const v=press.KeyZ||press.KeyJ||press.Enter||press._atk; return v; },
+  any : ()=>{ for(const k in press) if(press[k]) return true; return false; },
+};
+function clearPress(){ for(const k in press) delete press[k]; }
+
+/* ---------- 音（ちいさく） ---------- */
+let AC=null, muted=false;
+function beep(freq, dur, type, vol){
+  if(muted) return;
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const o=AC.createOscillator(), gn=AC.createGain();
+    o.type=type||'triangle'; o.frequency.value=freq;
+    gn.gain.setValueAtTime(vol||.07, AC.currentTime);
+    gn.gain.exponentialRampToValueAtTime(.0001, AC.currentTime+dur);
+    o.connect(gn).connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);
+  }catch(e){}
+}
+
+/* ---------- 状態 ---------- */
+const WAVES = [
+  {n: 5, sp:[44, 64], hp:1, gap:1.55},
+  {n: 7, sp:[50, 74], hp:1, gap:1.30},
+  {n: 8, sp:[56, 82], hp:2, gap:1.18},
+  {n:10, sp:[62, 90], hp:2, gap:1.05},
+  {n:12, sp:[68,102], hp:3, gap:0.92},
+];
+const KANSUJI = ['一','二','三','四','五'];
+
+let state, player, foes, bits, wave, spawned, timer, score, shake, msg, msgT, bg, endT;
+
+function reset(){
+  state='title';
+  player = {x:W*0.3, y:GROUND, vx:0, vy:0, dir:1, onGround:true,
+            swing:0, atk:-1, atkId:0, life:3, inv:0, bob:0, walk:0};
+  foes=[]; bits=[]; wave=0; spawned=0; timer=0; score=0; shake=0; endT=0;
+  msg=''; msgT=0;
+  bg = Array.from({length:26},()=>({x:rnd(0,W), y:rnd(60,300), r:rnd(2,5), a:rnd(.05,.14)}));
+}
+reset();
+
+function startWave(i){
+  wave=i; spawned=0; timer=0.9;
+  msg = KANSUJI[i]+'の巻'; msgT=1.9;
+  beep(520,.18,'sine',.06); setTimeout(()=>beep(700,.22,'sine',.05),140);
+}
+
+function spawnFoe(){
+  const w = WAVES[wave];
+  const fromLeft = Math.random()<.5;
+  const hp = Math.random()<.3 ? w.hp : Math.max(1, w.hp-1);
+  const r = 26 + hp*9;
+  const sp = rnd(w.sp[0], w.sp[1]);
+  foes.push({
+    x: fromLeft ? -60 : W+60, y: GROUND - r*0.92,
+    sp, vx: (fromLeft?1:-1)*sp, kb:0,
+    r, hp, maxhp:hp, t:rnd(0,9), flash:0, hop:rnd(0,6),
+  });
+  spawned++;
+}
+
+function splat(x,y,n,color){
+  for(let i=0;i<n;i++){
+    const a=rnd(0,Math.PI*2), s=rnd(60,300);
+    bits.push({x,y,vx:Math.cos(a)*s, vy:Math.sin(a)*s-80, r:rnd(2.5,8), life:rnd(.35,.8), t:0, c:color||'#1b1b24'});
+  }
+}
+
+/* ---------- 更新 ---------- */
+function update(dt){
+  if(state==='title'){ if(tapped.atk()||tapped.jump()||press._any){ startWave(0); state='play'; } return; }
+  if(state==='over'||state==='clear'){
+    endT+=dt;
+    for(const b of bits){ b.t+=dt; b.vy+=1600*dt; b.x+=b.vx*dt; b.y+=b.vy*dt; }
+    bits = bits.filter(b=>b.t<b.life);
+    if(endT>0.8 && (press.KeyR||press._any||tapped.atk())) reset();
+    return;
+  }
+
+  const p=player;
+
+  // 移動
+  const sp = 268;
+  p.vx = 0;
+  if(held.left()){ p.vx=-sp; p.dir=-1; }
+  if(held.right()){ p.vx= sp; p.dir= 1; }
+  if(p.vx) p.walk += dt*9; else p.walk += dt*2.2;
+
+  if(tapped.jump() && p.onGround){ p.vy=-840; p.onGround=false; beep(360,.12,'square',.05); }
+  p.vy += 2300*dt;
+  p.x = clamp(p.x + p.vx*dt, 40, W-40);
+  p.y += p.vy*dt;
+  if(p.y>=GROUND){ p.y=GROUND; p.vy=0; if(!p.onGround) beep(180,.07,'sine',.04); p.onGround=true; }
+
+  // 斬る
+  if(tapped.atk() && p.atk<0){ p.atk=0; p.atkId++; beep(820,.12,'sawtooth',.05); }
+  if(p.atk>=0){
+    p.atk += dt;
+    const t=p.atk;
+    if(t<0.12)      p.swing = -0.36*(t/0.12);
+    else if(t<0.26) p.swing = -0.36 + 2.96*((t-0.12)/0.14);
+    else if(t<0.33) p.swing = 2.60;
+    else if(t<0.46) p.swing = 2.60*(1-(t-0.33)/0.13);
+    else { p.swing=0; p.atk=-1; }
+  } else p.swing = 0;
+
+  p.bob = p.onGround ? Math.sin(p.walk)*(Math.abs(p.vx)>1?3.5:1.4) : -2;
+
+  // 斬撃の当たり
+  const slashing = p.atk>=0.13 && p.atk<=0.31;
+  const hx = p.x + p.dir*78, hy = p.y - 128, hr = 104;
+
+  // 敵
+  for(const f of foes){
+    f.t += dt; f.hop += dt*6;
+    const toward = Math.sign(p.x - f.x) || 1;
+    if(Math.abs(p.x-f.x)>10) f.vx = f.sp*toward;
+    f.x += (f.vx + f.kb)*dt;
+    f.kb *= Math.pow(0.004, dt);
+    f.y = GROUND - f.r*0.92 - Math.abs(Math.sin(f.hop))*7;
+    if(f.flash>0) f.flash-=dt;
+
+    if(slashing && !f.dead && f.hitId!==p.atkId){
+      const dx=f.x-hx, dy=f.y-hy;
+      if(dx*dx+dy*dy < (hr+f.r)*(hr+f.r)){
+        f.hitId = p.atkId;
+        f.hp--; f.flash=.14; f.kb = p.dir*460;
+        splat(f.x, f.y, 10);
+        shake=Math.max(shake,7);
+        beep(240,.1,'square',.06);
+        if(f.hp<=0){
+          f.dead=true; score += 100*f.maxhp;
+          splat(f.x,f.y,20); splat(f.x,f.y,6,OCHRE);
+          beep(640,.18,'triangle',.06);
+        }
+      }
+    }
+    // 接触
+    if(p.inv<=0 && !f.dead){
+      const dx=Math.abs(f.x-p.x), dy=Math.abs(f.y-(p.y-PH*0.42));
+      if(dx < f.r+PW*0.5 && dy < f.r+PH*0.4){
+        p.life--; p.inv=1.4; shake=14;
+        p.vy=-420; p.x += (p.x<f.x?-1:1)*26;
+        splat(p.x, p.y-110, 12, RED);
+        beep(130,.3,'sawtooth',.07);
+        if(p.life<=0){ state='over'; msg=''; endT=0; }
+      }
+    }
+  }
+  foes = foes.filter(f=>!f.dead);
+  if(p.inv>0) p.inv-=dt;
+
+  // かけら
+  for(const b of bits){ b.t+=dt; b.vy+=1600*dt; b.x+=b.vx*dt; b.y+=b.vy*dt; }
+  bits = bits.filter(b=>b.t<b.life);
+
+  // 巻の進行
+  const w = WAVES[wave];
+  timer -= dt;
+  if(spawned < w.n && timer<=0){ spawnFoe(); timer = w.gap; }
+  if(spawned >= w.n && foes.length===0 && state==='play'){
+    score += 300;
+    if(wave >= WAVES.length-1){ state='clear'; endT=0; }
+    else startWave(wave+1);
+  }
+  if(msgT>0) msgT-=dt;
+  if(shake>0) shake=Math.max(0, shake-dt*40);
+}
+
+/* ---------- 描画 ---------- */
+function drawBg(){
+  ctx.fillStyle=PAPER; ctx.fillRect(0,0,W,H);
+  // 紙のざらつき
+  ctx.save();
+  for(const d of bg){ ctx.globalAlpha=d.a; ctx.fillStyle='#8b7d63';
+    ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,7); ctx.fill(); }
+  ctx.restore();
+
+  // お日さま
+  ctx.save(); ctx.globalAlpha=.9;
+  const sun=new Path2D(); sun.ellipse(862,104,46,44,0,0,7);
+  ctx.fillStyle=RED; ctx.fill(sun); inkStroke(ctx,sun,7,'#a82e20');
+  ctx.restore();
+
+  // 遠くの山
+  const hill=P('M -20 470 C 110 360 210 352 300 436 C 360 492 420 486 470 440 \
+                C 560 356 700 364 790 452 C 860 520 950 500 1020 470 L 1020 560 L -20 560 Z');
+  ctx.save(); ctx.globalAlpha=.5;
+  ctx.fillStyle='#bcd8b0'; ctx.fill(hill); inkStroke(ctx,hill,6,'#7fa678');
+  ctx.restore();
+
+  // 地面
+  ctx.fillStyle='#efe6cf'; ctx.fillRect(0,GROUND,W,H-GROUND);
+  inkStroke(ctx, P(`M -10 ${GROUND} C 240 ${GROUND-6} 520 ${GROUND+5} 1010 ${GROUND-3}`), 10, OCHRE);
+  ctx.save(); ctx.globalAlpha=.35; ctx.strokeStyle='#c9b48a'; ctx.lineWidth=4; ctx.lineCap='round';
+  for(let i=0;i<22;i++){ const x=(i*47+13)%W, y=GROUND+16+((i*37)%70);
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+rnd(14,30), y+rnd(-3,3)); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawSamurai(x, y, dir, swing, scale, bobY){
+  const s = scale||CHAR_S;
+  ctx.save();
+  ctx.translate(x, y + (bobY||0));
+  ctx.scale(dir, 1);
+  ctx.drawImage(bodyCan, -500*s, -ART_H*s, ART_W*s, ART_H*s);
+  ctx.save();
+  ctx.translate((820-500)*s, (1300-ART_H)*s);
+  ctx.rotate(swing||0);
+  ctx.drawImage(swordCan, (SW_X-820)*s, (SW_Y-1300)*s, SW_W*s, SW_H*s);
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawFoe(f){
+  ctx.save(); ctx.translate(f.x, f.y);
+  const bl=new Path2D();
+  for(let i=0;i<=26;i++){
+    const a=i/26*Math.PI*2;
+    const rr=f.r*(1 + 0.13*Math.sin(a*3+f.t*3.4) + 0.07*Math.sin(a*5-f.t*2.1));
+    const px=Math.cos(a)*rr, py=Math.sin(a)*rr*0.95;
+    i?bl.lineTo(px,py):bl.moveTo(px,py);
+  }
+  bl.closePath();
+  ctx.fillStyle = f.flash>0 ? '#d9d4c6' : '#1e1e28';
+  ctx.fill(bl); inkStroke(ctx, bl, 5);
+  // 足
+  ctx.save(); ctx.strokeStyle=INK; ctx.lineWidth=5; ctx.lineCap='round';
+  for(const o of [-f.r*.45, f.r*.45]){
+    ctx.beginPath(); ctx.moveTo(o, f.r*.8); ctx.lineTo(o+Math.sin(f.hop)*4, f.r*1.12); ctx.stroke();
+  }
+  ctx.restore();
+  // 目
+  const ed = Math.sign(f.vx)||1;
+  for(const o of [-f.r*.3, f.r*.3]){
+    const e=new Path2D(); e.ellipse(o, -f.r*.18, f.r*.21, f.r*.26, 0,0,7);
+    ctx.fillStyle=CREAM; ctx.fill(e); inkStroke(ctx,e,3);
+    const pu=new Path2D(); pu.ellipse(o+ed*f.r*.07, -f.r*.16, f.r*.1, f.r*.13,0,0,7);
+    ctx.fillStyle=INK; ctx.fill(pu);
+  }
+  // 小さな角
+  inkStroke(ctx, P(`M ${-f.r*.2} ${-f.r*.86} L ${-f.r*.06} ${-f.r*1.2} L ${f.r*.08} ${-f.r*.88}`), 5);
+  if(f.maxhp>1){
+    ctx.save(); ctx.globalAlpha=.8;
+    for(let i=0;i<f.hp;i++){
+      ctx.fillStyle=ORANGE; ctx.beginPath();
+      ctx.arc(-(f.hp-1)*7+i*14, -f.r-16, 4.5, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function heart(x,y,r,fill){
+  const p=new Path2D();
+  p.moveTo(x, y+r*.75);
+  p.bezierCurveTo(x-r*1.5, y-r*.4, x-r*.5, y-r*1.25, x, y-r*.35);
+  p.bezierCurveTo(x+r*.5, y-r*1.25, x+r*1.5, y-r*.4, x, y+r*.75);
+  ctx.fillStyle = fill?RED:'rgba(0,0,0,0)'; ctx.fill(p);
+  inkStroke(ctx,p,4,fill?'#a82e20':'#9a9484');
+}
+
+function label(text, x, y, size, color, align){
+  ctx.save();
+  ctx.font = `${size}px "Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif`;
+  ctx.textAlign = align||'left'; ctx.textBaseline='middle';
+  ctx.lineJoin='round'; ctx.lineWidth=size*0.34; ctx.strokeStyle=PAPER;
+  ctx.strokeText(text,x,y);
+  ctx.fillStyle=color||INK; ctx.fillText(text,x,y);
+  ctx.restore();
+}
+
+function draw(){
+  ctx.save();
+  if(shake>0) ctx.translate(rnd(-shake,shake), rnd(-shake,shake));
+  drawBg();
+
+  for(const b of bits){
+    ctx.globalAlpha = 1 - b.t/b.life;
+    ctx.fillStyle=b.c; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  if(state==='title'){
+    drawSamurai(W*0.5, GROUND+6, 1, Math.sin(performance.now()/700)*0.05, 0.215, 0);
+    ctx.restore();
+    label('ごぼう侍', W/2, 92, 72, INK, 'center');
+    label('一太刀ずつ、ていねいに。', W/2, 158, 26, '#6b6354', 'center');
+    label('← →  うごく　／　スペース  とぶ　／　Z  きる', W/2, H-74, 24, '#4a4438', 'center');
+    label('Z かクリックで はじめます', W/2, H-34, 24, OCHRE==='#c9a13a'?'#9a7a1f':OCHRE, 'center');
+    return;
+  }
+
+  for(const f of foes) drawFoe(f);
+
+  const p=player;
+  const blink = p.inv>0 && Math.floor(p.inv*16)%2===0;
+  if(!blink) drawSamurai(p.x, p.y, p.dir, p.swing, CHAR_S, p.bob);
+
+  // 斬撃の軌跡（刀の切っ先をなぞる）
+  if(p.atk>=0.11 && p.atk<0.33){
+    const base = Math.atan2(SW_TIP[1]-1300, SW_TIP[0]-820);
+    const rad  = Math.hypot(SW_TIP[0]-820, SW_TIP[1]-1300)*CHAR_S;
+    ctx.save();
+    ctx.translate(p.x, p.y + p.bob); ctx.scale(p.dir,1);
+    ctx.translate((820-500)*CHAR_S, (1300-ART_H)*CHAR_S);
+    ctx.globalAlpha=.5; ctx.strokeStyle=OCHRE; ctx.lineWidth=11; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(0,0, rad, base+p.swing-0.72, base+p.swing); ctx.stroke();
+    ctx.globalAlpha=.25; ctx.lineWidth=20;
+    ctx.beginPath(); ctx.arc(0,0, rad*0.82, base+p.swing-0.5, base+p.swing); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // HUD
+  for(let i=0;i<3;i++) heart(40+i*40, 42, 15, i<player.life);
+  label(KANSUJI[wave]+'の巻', 26, 88, 28, INK, 'left');
+  label(score+' 点', 26, 124, 22, '#6b6354', 'left');
+  label(`のこり ${Math.max(0, WAVES[wave].n - spawned + foes.length)}`, 26, 156, 19, '#8a8272','left');
+
+  if(msgT>0 && state==='play'){
+    ctx.save(); ctx.globalAlpha = clamp(msgT,0,1);
+    label(msg, W/2, H/2-60, 86, INK, 'center');
+    ctx.restore();
+  }
+
+  if(state==='over'){
+    ctx.save(); ctx.fillStyle='rgba(251,247,238,.82)'; ctx.fillRect(0,0,W,H); ctx.restore();
+    label('ここまで。', W/2, H/2-70, 72, INK, 'center');
+    label('またいつでも、はじめられます。', W/2, H/2+2, 28, '#6b6354', 'center');
+    label(score+' 点', W/2, H/2+60, 34, INK, 'center');
+    label('R かクリックで もういちど', W/2, H/2+126, 24, '#9a7a1f', 'center');
+  }
+  if(state==='clear'){
+    ctx.save(); ctx.fillStyle='rgba(251,247,238,.86)'; ctx.fillRect(0,0,W,H); ctx.restore();
+    drawSamurai(W*0.5, H/2+180, 1, -0.3, 0.14, 0);
+    label('おつかれさまでした。', W/2, 110, 64, INK, 'center');
+    label('五つの巻、ぶじに歩き通しました。', W/2, 172, 26, '#6b6354', 'center');
+    label(score+' 点', W/2, 222, 34, INK, 'center');
+    label('R かクリックで もういちど', W/2, H-46, 24, '#9a7a1f', 'center');
+  }
+}
+
+/* ---------- ループ ---------- */
+let last=performance.now();
+function loop(now){
+  const dt = Math.min(0.05, (now-last)/1000); last=now;
+  update(dt);
+  draw();
+  clearPress();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+addEventListener('keydown', e=>{ if(e.code==='KeyM') muted=!muted; });
+</script>
+</body>
+</html>
